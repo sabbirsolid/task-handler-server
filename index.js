@@ -47,11 +47,12 @@ async function run() {
     // adding a task to db
     app.post("/addTask", async (req, res) => {
       try {
-        const { title, description, category } = req.body;
+        const { title, description, category, email } = req.body;
         const newTask = {
           title,
           description,
           category,
+          email,
         };
 
         // Store in database (MongoDB or any other)
@@ -64,46 +65,20 @@ async function run() {
       }
     });
 
-    // patch
-    // app.patch("/updateTask/:id", async (req, res) => {
-    //   const { id } = req.params;
-    //   const { category } = req.body;
-    
-    //   if (!category) {
-    //     return res.status(400).json({ message: "Category is required" });
-    //   }
-    
-    //   try {
-    //     const result = await taskCollection.updateOne(
-    //       {  },
-    //       { $set: { category } }
-    //     );
-    
-    //     if (result.modifiedCount > 0) {
-    //       res.status(200).json({ message: "Task updated successfully" });
-    //     } else {
-    //       res.status(404).json({ message: "Task not found" });
-    //     }
-    //   } catch (error) {
-    //     console.error("Error updating task:", error);
-    //     res.status(500).json({ message: "Internal Server Error" });
-    //   }
-    // });
-
     app.patch("/updateTask/:id", async (req, res) => {
       const { id } = req.params;
       const { category } = req.body;
-    
+
       if (!category) {
         return res.status(400).json({ message: "Category is required" });
       }
-    
+
       try {
         const result = await taskCollection.updateOne(
           { _id: new ObjectId(id) }, // Ensure correct task is updated
           { $set: { category } }
         );
-    
+
         if (result.modifiedCount > 0) {
           res.status(200).json({ message: "Task updated successfully" });
         } else {
@@ -114,13 +89,26 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
-    
 
-    // getting 
+    // getting
     app.get("/getTasks", async (req, res) => {
+      const email = req.query.email;
       try {
-        const tasks = await taskCollection.find().toArray();
+        const tasks = await taskCollection.find({ email: email }).toArray();
         res.status(200).json(tasks);
+      } catch (error) {
+        console.error("Error fetching tasks:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // delete a task
+    app.delete("/deleteTask/:id", async (req, res) => {
+      try {
+        const result = await taskCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+        res.send(result);
       } catch (error) {
         console.error("Error fetching tasks:", error);
         res.status(500).json({ message: "Internal Server Error" });
