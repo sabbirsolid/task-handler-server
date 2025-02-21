@@ -44,7 +44,7 @@ async function run() {
       }
     });
 
-    // adding a task to db
+    // // adding a task to db
     app.post("/addTask", async (req, res) => {
       try {
         const { title, description, category, email } = req.body;
@@ -53,9 +53,9 @@ async function run() {
           description,
           category,
           email,
+          position: -1, // Default position
         };
 
-        // Store in database (MongoDB or any other)
         const result = await taskCollection.insertOne(newTask);
         if (result) {
           res.send(result);
@@ -65,9 +65,10 @@ async function run() {
       }
     });
 
+    // Update task category and position
     app.patch("/updateTask/:id", async (req, res) => {
       const { id } = req.params;
-      const { category } = req.body;
+      const { category, position } = req.body;
 
       if (!category) {
         return res.status(400).json({ message: "Category is required" });
@@ -75,8 +76,8 @@ async function run() {
 
       try {
         const result = await taskCollection.updateOne(
-          { _id: new ObjectId(id) }, // Ensure correct task is updated
-          { $set: { category } }
+          { _id: new ObjectId(id) },
+          { $set: { category, position } }
         );
 
         if (result.modifiedCount > 0) {
@@ -90,7 +91,7 @@ async function run() {
       }
     });
 
-    // getting
+    // Get tasks for a specific user
     app.get("/getTasks", async (req, res) => {
       const email = req.query.email;
       try {
@@ -98,6 +99,26 @@ async function run() {
         res.status(200).json(tasks);
       } catch (error) {
         console.error("Error fetching tasks:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // Reorder tasks within a category
+    app.post("/reorderTasks", async (req, res) => {
+      const { email, category, tasks } = req.body;
+
+      try {
+        const bulkOps = tasks.map((task, index) => ({
+          updateOne: {
+            filter: { _id: new ObjectId(task._id), email },
+            update: { $set: { position: index } },
+          },
+        }));
+
+        await taskCollection.bulkWrite(bulkOps);
+        res.status(200).json({ message: "Tasks reordered successfully" });
+      } catch (error) {
+        console.error("Error reordering tasks:", error);
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
