@@ -91,6 +91,25 @@ async function run() {
       }
     });
 
+    // name description update 
+    app.patch("/updateTaskInfo/:id", async (req, res) => {
+      const { id } = req.params;
+      const { title, description } = req.body;
+      if (!title || !description)
+        return res.status(400).send({ error: "All fields are required" });
+
+      const result = await taskCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { title, description } }
+      );
+
+      if (result.modifiedCount > 0) {
+        res.send({ success: true, message: "Task updated successfully" });
+      } else {
+        res.status(404).send({ error: "Task not found" });
+      }
+    });
+
     // Get tasks for a specific user
     app.get("/getTasks", async (req, res) => {
       const email = req.query.email;
