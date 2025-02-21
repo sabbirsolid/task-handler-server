@@ -21,12 +21,12 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.connect();
+    // // Send a ping to confirm a successful connection
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
     const userCollection = client.db("task-handler").collection("users");
     const taskCollection = client.db("task-handler").collection("tasks");
     app.get("/", async (req, res) => {
@@ -44,23 +44,41 @@ async function run() {
       }
     });
 
-    // // adding a task to db
+    
+    // testing
     app.post("/addTask", async (req, res) => {
       try {
         const { title, description, category, email } = req.body;
+
+        // Find the maximum position for tasks in the same category and email
+        const maxPositionTask = await taskCollection
+          .find({ email, category })
+          .sort({ position: -1 }) // Sort in descending order
+          .limit(1) // Get only the first result (max position)
+          .toArray();
+
+        // Calculate the new position
+        const maxPosition =
+          maxPositionTask.length > 0 ? maxPositionTask[0].position : -1;
+        const newPosition = maxPosition + 1;
+
+        // Create the new task with the calculated position
         const newTask = {
           title,
           description,
           category,
           email,
-          position: -1, // Default position
+          position: newPosition,
+          modifiedTime: new Date(),
         };
 
+        // Insert the new task into the database
         const result = await taskCollection.insertOne(newTask);
         if (result) {
           res.send(result);
         }
       } catch (err) {
+        console.error("Error adding task:", err);
         res.status(500).json({ error: "Failed to add task" });
       }
     });
@@ -77,7 +95,7 @@ async function run() {
       try {
         const result = await taskCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { category, position } }
+          { $set: { category, position, modifiedTime: new Date(), } }
         );
 
         if (result.modifiedCount > 0) {
@@ -91,7 +109,7 @@ async function run() {
       }
     });
 
-    // name description update 
+    // name description update
     app.patch("/updateTaskInfo/:id", async (req, res) => {
       const { id } = req.params;
       const { title, description } = req.body;
@@ -100,7 +118,7 @@ async function run() {
 
       const result = await taskCollection.updateOne(
         { _id: new ObjectId(id) },
-        { $set: { title, description } }
+        { $set: { title, description, modifiedTime: new Date(), } }
       );
 
       if (result.modifiedCount > 0) {
@@ -160,7 +178,10 @@ async function run() {
   }
 }
 run().catch(console.dir);
+app.get("/", (req, res) => {
+  res.send("Task Handler is running");
+});
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+  // console.log(`Example app listening on port ${port}`);
 });
