@@ -29,6 +29,7 @@ async function run() {
     // );
     const userCollection = client.db("task-handler").collection("users");
     const taskCollection = client.db("task-handler").collection("tasks");
+    const historyCollection = client.db("task-handler").collection("histories");
 
     // Get tasks for a specific user
     app.get("/getTasks", async (req, res) => {
@@ -37,7 +38,22 @@ async function run() {
         const tasks = await taskCollection.find({ email: email }).toArray();
         res.status(200).json(tasks);
       } catch (error) {
-        console.error("Error fetching tasks:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+    // get history
+    app.get("/getHistory/:email", async (req, res) => {
+      try {
+        const { email } = req.params;
+        const history = await historyCollection
+          .find({ email })
+          .sort({ timestamp: -1 })
+          .limit(15)
+          .toArray();
+
+        res.status(200).json(history);
+      } catch (error) {
+       
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
@@ -57,26 +73,25 @@ async function run() {
     // adding a task
     app.post("/addTask", async (req, res) => {
       try {
-        const { title, description, category, email } = req.body;
+        const { title, description, category, deadline, email } = req.body;
 
         // Find the maximum position for tasks in the same category and email
         const maxPositionTask = await taskCollection
           .find({ email, category })
-          .sort({ position: -1 }) // Sort in descending order
-          .limit(1) // Get only the first result (max position)
+          .sort({ position: -1 })
+          .limit(1)
           .toArray();
 
         // Calculate the new position
         const maxPosition =
           maxPositionTask.length > 0 ? maxPositionTask[0].position : -1;
         const newPosition = maxPosition + 1;
-
-        // Create the new task with the calculated position
         const newTask = {
           title,
           description,
           category,
           email,
+          deadline,
           position: newPosition,
           addedTime: new Date(),
           modifiedTime: null,
@@ -84,11 +99,19 @@ async function run() {
 
         // Insert the new task into the database
         const result = await taskCollection.insertOne(newTask);
+        // history
+        await historyCollection.insertOne({
+          action: "add",
+          taskId: result.insertedId,
+          email,
+          timestamp: new Date(),
+          details: { title, description, category, deadline },
+        });
         if (result) {
           res.send(result);
         }
       } catch (err) {
-        console.error("Error adding task:", err);
+       
         res.status(500).json({ error: "Failed to add task" });
       }
     });
@@ -96,33 +119,34 @@ async function run() {
     // Update task category and position
     app.patch("/updateTask/:id", async (req, res) => {
       const { id } = req.params;
-      const { category, position } = req.body;
+      const { category, position, email } = req.body;
 
       if (!category) {
         return res.status(400).json({ message: "Category is required" });
       }
 
-      try {
-        const result = await taskCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { category, position, modifiedTime: new Date() } }
-        );
+      const result = await taskCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { category, position, email, modifiedTime: new Date() } }
+      );
 
-        if (result.modifiedCount > 0) {
-          res.status(200).json({ message: "Task updated successfully" });
-        } else {
-          res.status(404).json({ message: "Task not found" });
-        }
-      } catch (error) {
-        console.error("Error updating task:", error);
-        res.status(500).json({ message: "Internal Server Error" });
+      // history collections
+      if (result.modifiedCount > 0) {
+        await historyCollection.insertOne({
+          action: "update",
+          taskId: new ObjectId(id),
+          email: req.body.email,
+          timestamp: new Date(),
+          details: { category, position },
+        });
       }
+      res.send(result);
     });
 
     // name description cate update
     app.patch("/updateTaskInfo/:id", async (req, res) => {
       const { id } = req.params;
-      const { title, description, category } = req.body;
+      const { title, description, category, email } = req.body;
       if (!title || !description)
         return res.status(400).send({ error: "All fields are required" });
 
@@ -132,16 +156,20 @@ async function run() {
       );
 
       if (result.modifiedCount > 0) {
-        res.send({ success: true, message: "Task updated successfully" });
-      } else {
-        res.status(404).send({ error: "Task not found" });
+        await historyCollection.insertOne({
+          action: "edit",
+          taskId: new ObjectId(id),
+          email,
+          timestamp: new Date(),
+          details: { title, description, category },
+        });
       }
+      res.send(result);
     });
 
     // Reorder tasks within a category
     app.patch("/reorderTasks", async (req, res) => {
       const { email, category, tasks } = req.body;
-
       try {
         const bulkOps = tasks.map((task, index) => ({
           updateOne: {
@@ -151,24 +179,52 @@ async function run() {
         }));
 
         await taskCollection.bulkWrite(bulkOps);
+
+        // Log the action in history
+        await historyCollection.insertOne({
+          action: "reorder",
+          email,
+          timestamp: new Date(),
+          details: { category },
+        });
         res.status(200).json({ message: "Tasks reordered successfully" });
       } catch (error) {
-        console.error("Error reordering tasks:", error);
+        
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
     // delete a task
     app.delete("/deleteTask/:id", async (req, res) => {
+      const task = await taskCollection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
       try {
         const result = await taskCollection.deleteOne({
           _id: new ObjectId(req.params.id),
         });
+
+        // Log the action in history
+        if (result.deletedCount > 0) {
+          await historyCollection.insertOne({
+            action: "delete",
+            taskId: new ObjectId(req.params.id),
+            email: task.email,
+            timestamp: new Date(),
+            details: { title: task.title, category: task.category },
+          });
+        }
         res.send(result);
       } catch (error) {
-        console.error("Error fetching tasks:", error);
+       
         res.status(500).json({ message: "Internal Server Error" });
       }
+    });
+    app.delete("/history/:id", async (req, res) => {
+      const result = await historyCollection.deleteOne({
+        _id: new ObjectId(req.params.id),
+      });
+      res.send(result);
     });
   } finally {
     // Ensures that the client will close when you finish/error
