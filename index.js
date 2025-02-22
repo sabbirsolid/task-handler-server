@@ -29,13 +29,23 @@ async function run() {
     // );
     const userCollection = client.db("task-handler").collection("users");
     const taskCollection = client.db("task-handler").collection("tasks");
-    app.get("/", async (req, res) => {
-      res.send("hello world");
+
+    // Get tasks for a specific user
+    app.get("/getTasks", async (req, res) => {
+      const email = req.query.email;
+      try {
+        const tasks = await taskCollection.find({ email: email }).toArray();
+        res.status(200).json(tasks);
+      } catch (error) {
+        console.error("Error fetching tasks:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
     });
 
     // adding user to db
     app.post("/addUser", async (req, res) => {
-      const { uid, email, name } = req.body;
+      const { email } = req.body;
+
       const query = { email: email };
       const result = await userCollection.findOne(query);
       if (!result) {
@@ -44,8 +54,7 @@ async function run() {
       }
     });
 
-    
-    // testing
+    // adding a task
     app.post("/addTask", async (req, res) => {
       try {
         const { title, description, category, email } = req.body;
@@ -69,7 +78,8 @@ async function run() {
           category,
           email,
           position: newPosition,
-          modifiedTime: new Date(),
+          addedTime: new Date(),
+          modifiedTime: null,
         };
 
         // Insert the new task into the database
@@ -95,7 +105,7 @@ async function run() {
       try {
         const result = await taskCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { category, position, modifiedTime: new Date(), } }
+          { $set: { category, position, modifiedTime: new Date() } }
         );
 
         if (result.modifiedCount > 0) {
@@ -109,16 +119,16 @@ async function run() {
       }
     });
 
-    // name description update
+    // name description cate update
     app.patch("/updateTaskInfo/:id", async (req, res) => {
       const { id } = req.params;
-      const { title, description } = req.body;
+      const { title, description, category } = req.body;
       if (!title || !description)
         return res.status(400).send({ error: "All fields are required" });
 
       const result = await taskCollection.updateOne(
         { _id: new ObjectId(id) },
-        { $set: { title, description, modifiedTime: new Date(), } }
+        { $set: { title, description, category, modifiedTime: new Date() } }
       );
 
       if (result.modifiedCount > 0) {
@@ -128,27 +138,15 @@ async function run() {
       }
     });
 
-    // Get tasks for a specific user
-    app.get("/getTasks", async (req, res) => {
-      const email = req.query.email;
-      try {
-        const tasks = await taskCollection.find({ email: email }).toArray();
-        res.status(200).json(tasks);
-      } catch (error) {
-        console.error("Error fetching tasks:", error);
-        res.status(500).json({ message: "Internal Server Error" });
-      }
-    });
-
     // Reorder tasks within a category
-    app.post("/reorderTasks", async (req, res) => {
+    app.patch("/reorderTasks", async (req, res) => {
       const { email, category, tasks } = req.body;
 
       try {
         const bulkOps = tasks.map((task, index) => ({
           updateOne: {
             filter: { _id: new ObjectId(task._id), email },
-            update: { $set: { position: index } },
+            update: { $set: { position: index, modifiedTime: new Date() } },
           },
         }));
 
